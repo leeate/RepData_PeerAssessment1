@@ -2,15 +2,37 @@
 
 
 ## Loading and preprocessing the data
+First, we unzip and read in the files from 'activity.zip'.
 
+```{r read}
+unzip("./activity.zip")
+activity <- read.csv("activity.csv")
+```
 
+we make the date variable a 'real' time variable recognized by R.
+```{r date}
+activity$Date <- strptime(activity$date, "%Y-%m-%d")
+```
 
 ## What is mean total number of steps taken per day?
 
+```{r steps}
+summarize_act <- ddply(activity, .(date), summarize, Total=sum(steps), Mean=mean(steps), Median = median(steps))
 
+hist(summarize_act$Total, breaks=20)
+
+print("Mean: ")
+mean(summarize_act$Total, na.rm=TRUE)
+print("Median: ")
+median(summarize_act$Total, na.rm=TRUE)
+```
 
 ## What is the average daily activity pattern?
-
+```{r activity}
+act_avg <- with(activity, tapply(steps, interval, mean, na.rm=TRUE))
+average <- data.frame(interval=rownames(act_avg), mean=as.numeric(act_avg))
+with(average, plot(mean, interval, type="l"))
+```
 
 
 ## Imputing missing values
