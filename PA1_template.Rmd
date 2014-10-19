@@ -1,5 +1,13 @@
 # Reproducible Research: Peer Assessment 1
 
+```{r background_things, results='hide', message=FALSE}
+require(plyr)
+require(zoo)
+require(ggplot2)
+Sys.setlocale("LC_TIME", "English")
+```
+
+
 
 ## Loading and preprocessing the data
 First, we unzip and read in the files from 'activity.zip'.
@@ -9,34 +17,106 @@ unzip("./activity.zip")
 activity <- read.csv("activity.csv")
 ```
 
-we make the date variable a 'real' time variable recognized by R.
+We make the date variable a 'real' time variable recognized by R.
 ```{r date}
 activity$Date <- strptime(activity$date, "%Y-%m-%d")
 ```
 
+
+
+
 ## What is mean total number of steps taken per day?
 
+We aggregate our data so that it give the summed number of steps for each day. After that, we make a histogram to show the distribution of steps.
+
 ```{r steps}
-summarize_act <- ddply(activity, .(date), summarize, Total=sum(steps), Mean=mean(steps), Median = median(steps))
-
-hist(summarize_act$Total, breaks=20)
-
-print("Mean: ")
-mean(summarize_act$Total, na.rm=TRUE)
-print("Median: ")
-median(summarize_act$Total, na.rm=TRUE)
+# summarize_act <- ddply(activity, .(date), summarize, Total=sum(steps), Mean=mean(steps), Median = median(steps))
+summarize_act <- aggregate(steps ~ date, data=activity, FUN=sum, na.rm=TRUE)
+hist(summarize_act$steps, breaks="FD")
 ```
+
+```{r echo=FALSE}
+sumActMean <- round(mean(summarize_act$steps, na.rm=TRUE), digits=2)
+sumActMedian <- median(summarize_act$steps, na.rm=TRUE)
+```
+
+The mean was `r sumActMean`, the median was `r sumActMedian`. 
+
 
 ## What is the average daily activity pattern?
+
+For this, we need again to aggregate the data frime, but this time instead of compressing to days, we aggregate to the different intervals which are recorded in the data. Then we can draw a plot along the intervals.
+
 ```{r activity}
-act_avg <- with(activity, tapply(steps, interval, mean, na.rm=TRUE))
-average <- data.frame(interval=rownames(act_avg), mean=as.numeric(act_avg))
-with(average, plot(mean, interval, type="l"))
+average <- aggregate(steps ~ interval, data=activity, FUN=mean, na.rm=TRUE)
+names(average)[2] <- "intervalMean"
+
+with(average, {
+  plot(interval, intervalMean, type="n", pch=-1)
+  lines(interval,intervalMean)
+  abline(v=quantile(x=0:2355, probs=c(0.20,0.4,0.6,0.8)), col="blue")
+  })
 ```
+
+We can see that in first quintile and the second half of the last quintile - which seems to be nighttime -, are the lowest records for a day. Then it rises sharply for the second quartile (perhaps because of morning preparations, transportation, etc.), then it stays low for both the third (afternoon) and fourth (evening) quantiles, with the latter being somewhat higher. This may be also due to transportation and / or pasttime activities. In the last quantile we observe a steep decline, which most likely indicates rest.
+
+```{r max}
+maxSteps <- average$interval[which.max(average$intervalMean)]
+```
+On average, the maximum number of steps was in the `r maxSteps`. interval.
+
+
 
 
 ## Imputing missing values
 
+When we look at the original (not aggregated) data, we find that there are a significant number of record for which there are no available step data. We impute these missing values by joining the previously computed interval means (see previous point) to the original dataset so that for a missing step number, the average number of steps for its interval would be automatically inserted.
+Then we aggregate this modified data frame in the same way as previously, aggregating for the total number of steps.
+Finally, we draw a histogram.
+
+```{r}
+mergedf <- merge(average, activity, by="interval")
+mergedf$steps[is.na(mergedf$steps)] <- mergedf$intervalMean[is.na(mergedf$steps)]
+
+summarizeActImputed <- aggregate(steps ~ date, data=mergedf, FUN=sum)
+hist(summarizeActImputed$steps, breaks="FD")
+```
+
+One thing is noticeable here: the central values in the imputed data are higher.
+However, this is only very slightly reflected in the mean and median: the median has is a little bit higher value.
+```{r echo=FALSE}
+sumActImpMean <- round(mean(summarizeActImputed$steps, na.rm=TRUE), digits=2)
+sumActImpMedian <- median(summarizeActImputed$steps, na.rm=TRUE)
+```
+
+The mean was `r sumActImpMean`, the median was `r sumActImpMedian`. 
+
 
 
 ## Are there differences in activity patterns between weekdays and weekends?
+
+For this part, we need to create a new variable which indicates if a particular date is a weekday or is in the weekend.
+We use the newly created datased with the imputed missing values.
+Then, similiar to the average daily activity pattern, we aggregate this data, however, this time this new "weekday" variable is also used for the process.
+
+```{r}
+mergedf$weekday <- ifelse(weekdays(mergedf$Date) %in% c("Saturday","Sunday"), "weekend","weekday") 
+mergedf$weekday <- factor(mergedf$weekday, levels=c("weekday","weekend"))
+aggregated <- aggregate(steps ~ interval + weekday, data=mergedf, FUN=mean, na.rm=TRUE)
+```
+
+In order to better evaulate tendencies between weekends and weekdays, a moving average of the steps is made, which will smooth our graphical view. We used a 30 period moving average for this.
+As a last step, we add a plot which shows data for the weekends and weekdays side-by-side.
+
+```{r warning=FALSE}
+aggregated$mav<-ave(aggregated$steps, aggregated$weekday, 
+FUN= function(x) rollmean(x, k=30, na.pad=T) )
+
+# Adding plot
+ggplot(aggregated, aes(interval, steps)) + geom_line() + geom_line(aes(interval, mav), color="blue", size=1.5) + facet_grid(weekday ~ .) +
+ ggtitle("Average daily activity pattern on weekdays and weekends")
+```
+
+We can clearly see that activity in the weekend is much more balanced, with almost as much steps taken during the day as in the morning periods. During the weekend, the decline starts earlier, however, it's slope is less steep than in the weekdays. This could mean that some prefer to use the weekend as a resting oppurtinity earlier in the evening, while others prefer to stay up later in the night. What's common between weekends and weekends is that:
+1. Very little activity in the first intervals of the day
+2. Activity goes up from afternoons to evenings. 
